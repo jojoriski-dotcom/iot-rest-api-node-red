@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>IoT Temperature Monitor</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    :root{font-family:Inter,system-ui,Segoe UI,sans-serif;color:#e8eef8;background:#0b1220}*{box-sizing:border-box}
+    body{margin:0;padding:28px;background:radial-gradient(circle at top right,#172b48,#0b1220 55%);min-height:100vh}
+    main{max-width:1100px;margin:auto}h1{margin:0 0 6px;font-size:clamp(25px,4vw,36px)}.muted{color:#94a3b8}
+    .top{display:flex;justify-content:space-between;gap:16px;align-items:center;flex-wrap:wrap;margin-bottom:22px}
+    .panel,.metric{background:#111c2e;border:1px solid #26364d;border-radius:16px;padding:20px;box-shadow:0 14px 34px #0003}
+    .metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin:18px 0}
+    .metric small{color:#9fb0c7;text-transform:uppercase;letter-spacing:.08em}.value{font-size:42px;font-weight:750;margin:8px 0;color:#7dd3fc}
+    .grid{display:grid;grid-template-columns:1.5fr 1fr;gap:16px}.panel h2{font-size:17px;margin:0 0 14px}
+    input,button{border-radius:9px;border:1px solid #34465f;background:#0c1728;color:#e8eef8;padding:10px 12px}button{background:#176b87;border:0;font-weight:650;cursor:pointer}button:hover{filter:brightness(1.15)}
+    .row{display:flex;gap:8px;flex-wrap:wrap}.alert{padding:12px;border-radius:10px;background:#4c2524;color:#fecaca;margin-top:12px;display:none}
+    table{width:100%;border-collapse:collapse;font-size:13px}th,td{text-align:left;padding:10px;border-bottom:1px solid #26364d}th{color:#9fb0c7}
+    #log{font:12px ui-monospace,monospace;color:#a5b4fc;max-height:130px;overflow:auto}.status{font-size:13px;color:#a3e635}
+    @media(max-width:760px){body{padding:16px}.grid{grid-template-columns:1fr}.value{font-size:35px}}
+  </style>
+</head>
+<body><main>
+  <div class="top"><div><h1>IoT Room Monitoring</h1><div class="muted">REST API · MQTT · WebSocket · SQLite</div></div><div class="status" id="connection">● Belum terhubung</div></div>
+  <section class="panel"><h2>Autentikasi</h2><div class="row"><input id="apiKey" type="password" placeholder="Masukkan X-API-Key" style="flex:1;min-width:220px"><button id="connectBtn">Hubungkan</button><button id="disconnectBtn">Putuskan</button></div><p class="muted">Key hanya disimpan sementara di tab browser.</p></section>
+  <section class="metrics">
+    <article class="metric"><small>Suhu terkini</small><div class="value" id="temperature">-- °C</div><div class="muted" id="receivedAt">Menunggu data sensor</div></article>
+    <article class="metric"><small>Kelembapan</small><div class="value" id="humidity">-- %</div><div class="muted">DHT22 / simulator</div></article>
+    <article class="metric"><small>Batas suhu</small><div class="value" id="thresholdValue">30 °C</div><div class="muted">Peringatan jika suhu melebihi batas</div></article>
+  </section>
+  <div class="grid">
+    <section class="panel"><h2>Grafik sensor real-time</h2><canvas id="sensorChart" height="125"></canvas><div class="alert" id="alertBox"></div></section>
+    <section class="panel"><h2>Pengaturan threshold</h2><div class="row"><input id="thresholdInput" type="number" step="0.1" min="-40" max="125" value="30"><button id="saveThreshold">Simpan batas</button></div><hr style="border-color:#26364d;margin:20px 0"><h2>Kontrol aktuator</h2><div class="row"><button data-action="on">Nyalakan lampu</button><button data-action="off">Matikan lampu</button></div><p class="muted" id="controlStatus">Belum ada perintah</p></section>
+  </div>
+  <section class="panel" style="margin-top:16px"><h2>Riwayat sensor (SQLite)</h2><div style="overflow:auto"><table><thead><tr><th>Waktu diterima</th><th>Suhu</th><th>Kelembapan</th></tr></thead><tbody id="history"><tr><td colspan="3">Belum ada data</td></tr></tbody></table></div></section>
+  <section class="panel" style="margin-top:16px"><h2>Log aktivitas</h2><div id="log"></div></section>
+</main>
+<script>
+(() => {
+  const API='/api', $=id=>document.getElementById(id); let key='', socket=null;
+  const log=(s)=>{const d=document.createElement('div');d.textContent=`[${new Date().toLocaleTimeString()}] ${s}`;$('log').prepend(d)};
+  const chart=new Chart($('sensorChart'),{type:'line',data:{labels:[],datasets:[{label:'Suhu (°C)',data:[],borderColor:'#38bdf8',backgroundColor:'#38bdf833',tension:.3,yAxisID:'y'},{label:'Kelembapan (%)',data:[],borderColor:'#a78bfa',backgroundColor:'#a78bfa33',tension:.3,yAxisID:'y1'}]},options:{responsive:true,animation:false,interaction:{mode:'index',intersect:false},scales:{y:{position:'left',title:{display:true,text:'°C'}},y1:{position:'right',grid:{drawOnChartArea:false},title:{display:true,text:'%'}}}}});
+  async function api(path,options={}){const res=await fetch(API+path,{...options,headers:{'Content-Type':'application/json','X-API-Key':key,...options.headers}});const body=await res.json().catch(()=>({message:'Respons bukan JSON'}));if(!res.ok)throw Error(body.message||`HTTP ${res.status}`);return body;}
+  function showData(d){if(!d||d.suhu==null)return;$('temperature').textContent=Number(d.suhu).toFixed(1)+' °C';$('humidity').textContent=Number(d.kelembaban).toFixed(1)+' %';$('receivedAt').textContent=d.received?new Date(d.received).toLocaleString():'';const label=new Date(d.received||d.timestamp||Date.now()).toLocaleTimeString();chart.data.labels.push(label);chart.data.datasets[0].data.push(Number(d.suhu));chart.data.datasets[1].data.push(Number(d.kelembaban));if(chart.data.labels.length>30){chart.data.labels.shift();chart.data.datasets.forEach(x=>x.data.shift());}chart.update('none');}
+  function handleEvent(event){if(event.type==='sensor'){showData(event.data);}
+    if(event.type==='threshold'){ $('thresholdValue').textContent=event.temperature+' °C';$('thresholdInput').value=event.temperature;}
+    if(event.type==='threshold_exceeded'){const msg=`PERINGATAN: suhu ${event.suhu} °C melewati batas ${event.threshold} °C`;$('alertBox').textContent=msg;$('alertBox').style.display='block';log(msg);if('Notification'in window&&Notification.permission==='granted')new Notification('Peringatan suhu IoT',{body:msg});}
+  }
+  async function connect(){key=$('apiKey').value.trim();if(!key){alert('Masukkan API key.');return;}sessionStorage.setItem('iotApiKey',key);try{const last=await api('/suhu');showData(last.data);const h=await api('/history?limit=20');renderHistory(h.data||[]);const t=await api('/threshold');$('thresholdValue').textContent=t.temperature+' °C';$('thresholdInput').value=t.temperature;
+      socket=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws/sensor?apiKey=${encodeURIComponent(key)}`);socket.onopen=()=>$('connection').textContent='● WebSocket tersambung';socket.onclose=()=>$('connection').textContent='● WebSocket terputus';socket.onerror=()=>log('WebSocket mengalami masalah');socket.onmessage=e=>{try{handleEvent(JSON.parse(e.data));}catch(err){log('Pesan WebSocket tidak valid');}};
+      log('Autentikasi berhasil; menunggu update WebSocket.');if('Notification'in window&&Notification.permission==='default')Notification.requestPermission();
+    }catch(e){log('Gagal menghubungkan: '+e.message);alert(e.message);}}
+  function renderHistory(items){$('history').replaceChildren();items.slice().reverse().forEach(d=>{const tr=document.createElement('tr');[new Date(d.received||d.timestamp).toLocaleString(),d.suhu+' °C',d.kelembaban+' %'].forEach(v=>{const td=document.createElement('td');td.textContent=v;tr.append(td);});$('history').append(tr);});if(!items.length)$('history').innerHTML='<tr><td colspan="3">Belum ada data</td></tr>';}
+  $('connectBtn').onclick=connect;$('disconnectBtn').onclick=()=>{socket?.close();socket=null;key='';sessionStorage.removeItem('iotApiKey');$('connection').textContent='● Terputus';};
+  $('saveThreshold').onclick=async()=>{try{const r=await api('/threshold',{method:'PUT',body:JSON.stringify({temperature:Number($('thresholdInput').value)})});$('thresholdValue').textContent=r.temperature+' °C';log('Threshold diperbarui: '+r.temperature+' °C');}catch(e){alert(e.message);}};
+  document.querySelectorAll('[data-action]').forEach(b=>b.onclick=async()=>{try{await api('/kontrol',{method:'POST',body:JSON.stringify({device:'lamp',action:b.dataset.action})});$('controlStatus').textContent='Perintah '+b.dataset.action+' terkirim';log('Kontrol lampu: '+b.dataset.action);}catch(e){alert(e.message);}});
+  $('apiKey').value=sessionStorage.getItem('iotApiKey')||'';
+})();
+</script></body></html>

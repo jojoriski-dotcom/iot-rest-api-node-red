@@ -1,0 +1,399 @@
+[
+  {
+    "id": "iot_rest_api",
+    "type": "tab",
+    "label": "IoT REST API + WebSocket + SQLite",
+    "disabled": false,
+    "info": "REST API for IoT sensor monitoring."
+  },
+  {
+    "id": "mqtt_local",
+    "type": "mqtt-broker",
+    "name": "Mosquitto Local",
+    "broker": "localhost",
+    "port": "1883",
+    "clientid": "node-red-iot-api",
+    "autoConnect": true,
+    "usetls": false,
+    "protocolVersion": "4",
+    "keepalive": "60",
+    "cleansession": true,
+    "autoUnsubscribe": true,
+    "birthTopic": "",
+    "birthQos": "0",
+    "birthPayload": "",
+    "closeTopic": "",
+    "closeQos": "0",
+    "closePayload": "",
+    "willTopic": "",
+    "willQos": "0",
+    "willPayload": ""
+  },
+  {
+    "id": "mqtt_sensor",
+    "type": "mqtt in",
+    "z": "iot_rest_api",
+    "name": "MQTT Sensor",
+    "topic": "iot/sensor",
+    "qos": "0",
+    "datatype": "auto",
+    "broker": "mqtt_local",
+    "nl": false,
+    "rap": true,
+    "rh": 0,
+    "inputs": 0,
+    "x": 140,
+    "y": 100,
+    "wires": [
+      [
+        "store_sensor"
+      ]
+    ]
+  },
+  {
+    "id": "store_sensor",
+    "type": "function",
+    "z": "iot_rest_api",
+    "name": "Validate, SQLite, broadcast + threshold",
+    "func": "const Database = global.get('betterSqlite3') || require('better-sqlite3');\nlet db = global.get('iotDb');\nif (!db) { db = new Database(require('path').join(process.env.HOME || process.env.USERPROFILE || '.', '.node-red', 'iot-history.sqlite')); db.pragma('journal_mode = WAL'); db.exec('CREATE TABLE IF NOT EXISTS sensor_history (id INTEGER PRIMARY KEY AUTOINCREMENT, suhu REAL NOT NULL, kelembaban REAL, timestamp TEXT, received TEXT NOT NULL)'); global.set('iotDb', db); }\nlet d = msg.payload; if (typeof d === 'string') { try { d = JSON.parse(d); } catch(e) { node.warn('Payload MQTT bukan JSON'); return null; } }\nconst suhu = Number(d.suhu), kelembaban = Number(d.kelembaban); if (!Number.isFinite(suhu)) return null;\nconst received = new Date().toISOString(); const data = {suhu, kelembaban: Number.isFinite(kelembaban)?kelembaban:null, timestamp:d.timestamp || received, received};\ndb.prepare('INSERT INTO sensor_history(suhu, kelembaban, timestamp, received) VALUES(?,?,?,?)').run(data.suhu,data.kelembaban,data.timestamp,data.received); global.set('lastSensor', data);\nlet threshold = Number(global.get('temperatureThreshold')); if (!Number.isFinite(threshold)) { threshold = 30; global.set('temperatureThreshold', threshold); }\nconst wsServer = global.get('iotWsServer'); if (wsServer) { const evt = JSON.stringify({type:'sensor', data}); wsServer.clients.forEach(c => { if (c.readyState === 1) c.send(evt); }); if (suhu > threshold) { const warn = JSON.stringify({type:'threshold_exceeded', suhu, threshold, timestamp:received}); wsServer.clients.forEach(c => { if(c.readyState===1)c.send(warn); }); } }\nmsg.payload=data; return msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "const Database = require('better-sqlite3');\nconst path = require('path');\nconst db = new Database(path.join(process.env.HOME || process.env.USERPROFILE || '.', '.node-red', 'iot-history.sqlite'));\ndb.pragma('journal_mode = WAL');\ndb.exec('CREATE TABLE IF NOT EXISTS sensor_history (id INTEGER PRIMARY KEY AUTOINCREMENT, suhu REAL NOT NULL, kelembaban REAL, timestamp TEXT, received TEXT NOT NULL)');\nglobal.set('iotDb', db); global.set('betterSqlite3', Database);\nconst WebSocket = require('ws'); const server = new WebSocket.Server({noServer:true});\nglobal.set('iotWsServer', server);\nconst expressWsServer = global.get('httpServer');\n// Upgrade handler is registered on Node-RED HTTP server via server event below when available.\nif (expressWsServer && expressWsServer.on) { expressWsServer.on('upgrade', (req,socket,head) => { if(req.url.startsWith('/ws/sensor')) { const key = new URL(req.url,'http://localhost').searchParams.get('apiKey'); if(key !== (process.env.IOT_API_KEY || 'change-me')) { socket.write('HTTP/1.1 401 Unauthorized\\r\\n\\r\\n'); socket.destroy(); return; } server.handleUpgrade(req,socket,head,ws=>server.emit('connection',ws,req)); } }); }",
+    "finalize": "",
+    "libs": [],
+    "x": 410,
+    "y": 100,
+    "wires": [
+      [
+        "debug_sensor"
+      ]
+    ]
+  },
+  {
+    "id": "debug_sensor",
+    "type": "debug",
+    "z": "iot_rest_api",
+    "name": "Latest sensor",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": false,
+    "complete": "payload",
+    "targetType": "msg",
+    "statusVal": "",
+    "statusType": "auto",
+    "x": 680,
+    "y": 100,
+    "wires": []
+  },
+  {
+    "id": "http_get_suhu",
+    "type": "http in",
+    "z": "iot_rest_api",
+    "name": "GET /api/suhu",
+    "url": "/api/suhu",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 140,
+    "y": 180,
+    "wires": [
+      [
+        "fn_get_suhu"
+      ]
+    ]
+  },
+  {
+    "id": "fn_get_suhu",
+    "type": "function",
+    "z": "iot_rest_api",
+    "name": "get_suhu",
+    "func": "const key = msg.req.headers['x-api-key']; if(key !== (process.env.IOT_API_KEY || 'change-me')) { msg.statusCode=401; msg.payload={status:'error',message:'API key tidak valid'}; return msg; }\nmsg.payload={status:'success',data:global.get('lastSensor') || {suhu:null,kelembaban:null,timestamp:null},server_time:new Date().toISOString()}; return msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 410,
+    "y": 180,
+    "wires": [
+      [
+        "resp_get_suhu"
+      ]
+    ]
+  },
+  {
+    "id": "resp_get_suhu",
+    "type": "http response",
+    "z": "iot_rest_api",
+    "name": "JSON response",
+    "statusCode": "",
+    "headers": {},
+    "x": 680,
+    "y": 180,
+    "wires": []
+  },
+  {
+    "id": "http_get_history",
+    "type": "http in",
+    "z": "iot_rest_api",
+    "name": "GET /api/history",
+    "url": "/api/history",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 140,
+    "y": 260,
+    "wires": [
+      [
+        "fn_get_history"
+      ]
+    ]
+  },
+  {
+    "id": "fn_get_history",
+    "type": "function",
+    "z": "iot_rest_api",
+    "name": "get_history",
+    "func": "if(msg.req.headers['x-api-key'] !== (process.env.IOT_API_KEY || 'change-me')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return msg;}\nconst Database=global.get('betterSqlite3')||require('better-sqlite3'); let db=global.get('iotDb'); if(!db){msg.statusCode=503;msg.payload={status:'error',message:'Database belum siap'};return msg;}\nconst limit=Math.max(1,Math.min(500,Number(msg.req.query.limit)||50)); msg.payload={status:'success',data:db.prepare('SELECT suhu,kelembaban,timestamp,received FROM sensor_history ORDER BY id DESC LIMIT ?').all(limit).reverse()}; return msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 410,
+    "y": 260,
+    "wires": [
+      [
+        "resp_get_history"
+      ]
+    ]
+  },
+  {
+    "id": "resp_get_history",
+    "type": "http response",
+    "z": "iot_rest_api",
+    "name": "JSON response",
+    "statusCode": "",
+    "headers": {},
+    "x": 680,
+    "y": 260,
+    "wires": []
+  },
+  {
+    "id": "http_post_kontrol",
+    "type": "http in",
+    "z": "iot_rest_api",
+    "name": "POST /api/kontrol",
+    "url": "/api/kontrol",
+    "method": "post",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 140,
+    "y": 340,
+    "wires": [
+      [
+        "fn_post_kontrol"
+      ]
+    ]
+  },
+  {
+    "id": "fn_post_kontrol",
+    "type": "function",
+    "z": "iot_rest_api",
+    "name": "post_kontrol",
+    "func": "if(msg.req.headers['x-api-key'] !== (process.env.IOT_API_KEY || 'change-me')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return [msg,null];}\nconst b=msg.payload||{}; if(!b.device||!['on','off'].includes(String(b.action).toLowerCase())){msg.statusCode=400;msg.payload={status:'error',message:'device dan action on/off wajib diisi'};return [msg,null];}\nconst out={topic:'iot/kontrol',payload:{device:String(b.device),action:String(b.action).toLowerCase()}}; const res={...msg,statusCode:200,payload:{status:'success',message:'Perintah terkirim',sent:out.payload}}; return [res,out];",
+    "outputs": 2,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 410,
+    "y": 340,
+    "wires": [
+      [
+        "resp_post_kontrol"
+      ],
+      [
+        "mqtt_control_out"
+      ]
+    ]
+  },
+  {
+    "id": "resp_post_kontrol",
+    "type": "http response",
+    "z": "iot_rest_api",
+    "name": "JSON response",
+    "statusCode": "",
+    "headers": {},
+    "x": 680,
+    "y": 340,
+    "wires": []
+  },
+  {
+    "id": "http_put_threshold",
+    "type": "http in",
+    "z": "iot_rest_api",
+    "name": "PUT /api/threshold",
+    "url": "/api/threshold",
+    "method": "put",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 140,
+    "y": 420,
+    "wires": [
+      [
+        "fn_put_threshold"
+      ]
+    ]
+  },
+  {
+    "id": "fn_put_threshold",
+    "type": "function",
+    "z": "iot_rest_api",
+    "name": "put_threshold",
+    "func": "if(msg.req.headers['x-api-key'] !== (process.env.IOT_API_KEY || 'change-me')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return msg;}\nconst t=Number(msg.payload && msg.payload.temperature); if(!Number.isFinite(t)||t < -40||t>125){msg.statusCode=400;msg.payload={status:'error',message:'temperature harus angka antara -40 sampai 125'};return msg;} global.set('temperatureThreshold',t); const w=global.get('iotWsServer'); if(w)w.clients.forEach(c=>{if(c.readyState===1)c.send(JSON.stringify({type:'threshold',temperature:t}));}); msg.payload={status:'success',temperature:t}; return msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 410,
+    "y": 420,
+    "wires": [
+      [
+        "resp_put_threshold"
+      ]
+    ]
+  },
+  {
+    "id": "resp_put_threshold",
+    "type": "http response",
+    "z": "iot_rest_api",
+    "name": "JSON response",
+    "statusCode": "",
+    "headers": {},
+    "x": 680,
+    "y": 420,
+    "wires": []
+  },
+  {
+    "id": "http_get_threshold",
+    "type": "http in",
+    "z": "iot_rest_api",
+    "name": "GET /api/threshold",
+    "url": "/api/threshold",
+    "method": "get",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 140,
+    "y": 500,
+    "wires": [
+      [
+        "fn_get_threshold"
+      ]
+    ]
+  },
+  {
+    "id": "fn_get_threshold",
+    "type": "function",
+    "z": "iot_rest_api",
+    "name": "get_threshold",
+    "func": "if(msg.req.headers['x-api-key'] !== (process.env.IOT_API_KEY || 'change-me')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return msg;} let t=Number(global.get('temperatureThreshold')); if(!Number.isFinite(t))t=30; msg.payload={status:'success',temperature:t}; return msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 410,
+    "y": 500,
+    "wires": [
+      [
+        "resp_get_threshold"
+      ]
+    ]
+  },
+  {
+    "id": "resp_get_threshold",
+    "type": "http response",
+    "z": "iot_rest_api",
+    "name": "JSON response",
+    "statusCode": "",
+    "headers": {},
+    "x": 680,
+    "y": 500,
+    "wires": []
+  },
+  {
+    "id": "mqtt_control_out",
+    "type": "mqtt out",
+    "z": "iot_rest_api",
+    "name": "Publish device control",
+    "topic": "",
+    "qos": "0",
+    "retain": "false",
+    "respTopic": "",
+    "contentType": "",
+    "userProps": "",
+    "correl": "",
+    "expiry": "",
+    "broker": "mqtt_local",
+    "x": 700,
+    "y": 600,
+    "wires": []
+  },
+  {
+    "id": "http_cors",
+    "type": "http in",
+    "z": "iot_rest_api",
+    "name": "CORS preflight",
+    "url": "/api/*",
+    "method": "options",
+    "upload": false,
+    "swaggerDoc": "",
+    "x": 140,
+    "y": 680,
+    "wires": [
+      [
+        "fn_cors"
+      ]
+    ]
+  },
+  {
+    "id": "fn_cors",
+    "type": "function",
+    "z": "iot_rest_api",
+    "name": "CORS headers",
+    "func": "msg.statusCode=204; msg.payload=''; msg.headers={'Access-Control-Allow-Origin':'*','Access-Control-Allow-Methods':'GET, POST, PUT, OPTIONS','Access-Control-Allow-Headers':'Content-Type, X-API-Key'}; return msg;",
+    "outputs": 1,
+    "timeout": 0,
+    "noerr": 0,
+    "initialize": "",
+    "finalize": "",
+    "libs": [],
+    "x": 400,
+    "y": 680,
+    "wires": [
+      [
+        "resp_cors"
+      ]
+    ]
+  },
+  {
+    "id": "resp_cors",
+    "type": "http response",
+    "z": "iot_rest_api",
+    "name": "",
+    "statusCode": "",
+    "headers": {},
+    "x": 660,
+    "y": 680,
+    "wires": []
+  }
+]

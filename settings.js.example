@@ -1,0 +1,8 @@
+// Gabungkan konfigurasi ini ke ~/.node-red/settings.js (jangan mengganti seluruh file).
+// httpStatic: '/absolute/path/to/iot-rest-api-node-red/public',
+// Simpan IOT_API_KEY sebagai environment variable pada proses Node-RED.
+
+// Untuk WebSocket server yang terhubung ke HTTP upgrade event, pada Node-RED versi
+// yang mendukung functionGlobalContext, konfigurasi contoh perlu disesuaikan dengan
+// instance HTTP server Node-RED yang digunakan. Jangan expose API key di repo publik.
+// functionExternalModules: true,
