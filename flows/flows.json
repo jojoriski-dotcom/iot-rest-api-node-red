@@ -55,13 +55,26 @@
     "type": "function",
     "z": "iot_rest_api",
     "name": "Validate, SQLite, broadcast + threshold",
-    "func": "const Database = global.get('betterSqlite3') || require('better-sqlite3');\nlet db = global.get('iotDb');\nif (!db) { db = new Database(require('path').join(process.env.HOME || process.env.USERPROFILE || '.', '.node-red', 'iot-history.sqlite')); db.pragma('journal_mode = WAL'); db.exec('CREATE TABLE IF NOT EXISTS sensor_history (id INTEGER PRIMARY KEY AUTOINCREMENT, suhu REAL NOT NULL, kelembaban REAL, timestamp TEXT, received TEXT NOT NULL)'); global.set('iotDb', db); }\nlet d = msg.payload; if (typeof d === 'string') { try { d = JSON.parse(d); } catch(e) { node.warn('Payload MQTT bukan JSON'); return null; } }\nconst suhu = Number(d.suhu), kelembaban = Number(d.kelembaban); if (!Number.isFinite(suhu)) return null;\nconst received = new Date().toISOString(); const data = {suhu, kelembaban: Number.isFinite(kelembaban)?kelembaban:null, timestamp:d.timestamp || received, received};\ndb.prepare('INSERT INTO sensor_history(suhu, kelembaban, timestamp, received) VALUES(?,?,?,?)').run(data.suhu,data.kelembaban,data.timestamp,data.received); global.set('lastSensor', data);\nlet threshold = Number(global.get('temperatureThreshold')); if (!Number.isFinite(threshold)) { threshold = 30; global.set('temperatureThreshold', threshold); }\nconst wsServer = global.get('iotWsServer'); if (wsServer) { const evt = JSON.stringify({type:'sensor', data}); wsServer.clients.forEach(c => { if (c.readyState === 1) c.send(evt); }); if (suhu > threshold) { const warn = JSON.stringify({type:'threshold_exceeded', suhu, threshold, timestamp:received}); wsServer.clients.forEach(c => { if(c.readyState===1)c.send(warn); }); } }\nmsg.payload=data; return msg;",
+    "func": "const Database = global.get('betterSqlite3') || _bsqlite;\nlet db = global.get('iotDb');\nif (!db) { db = new Database(_path.join('/data/data/com.termux/files/home', '.node-red', 'iot-history.sqlite')); db.pragma('journal_mode = WAL'); db.exec('CREATE TABLE IF NOT EXISTS sensor_history (id INTEGER PRIMARY KEY AUTOINCREMENT, suhu REAL NOT NULL, kelembaban REAL, timestamp TEXT, received TEXT NOT NULL)'); global.set('iotDb', db); }\nlet d = msg.payload; if (typeof d === 'string') { try { d = JSON.parse(d); } catch(e) { node.warn('Payload MQTT bukan JSON'); return null; } }\nconst suhu = Number(d.suhu), kelembaban = Number(d.kelembaban); if (!Number.isFinite(suhu)) return null;\nconst received = new Date().toISOString(); const data = {suhu, kelembaban: Number.isFinite(kelembaban)?kelembaban:null, timestamp:d.timestamp || received, received};\ndb.prepare('INSERT INTO sensor_history(suhu, kelembaban, timestamp, received) VALUES(?,?,?,?)').run(data.suhu,data.kelembaban,data.timestamp,data.received); global.set('lastSensor', data);\nlet threshold = Number(global.get('temperatureThreshold')); if (!Number.isFinite(threshold)) { threshold = 30; global.set('temperatureThreshold', threshold); }\nconst wsServer = global.get('iotWsServer'); if (wsServer) { const evt = JSON.stringify({type:'sensor', data}); wsServer.clients.forEach(c => { if (c.readyState === 1) c.send(evt); }); if (suhu > threshold) { const warn = JSON.stringify({type:'threshold_exceeded', suhu, threshold, timestamp:received}); wsServer.clients.forEach(c => { if(c.readyState===1)c.send(warn); }); } }\nmsg.payload=data; return msg;",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
-    "initialize": "const Database = require('better-sqlite3');\nconst path = require('path');\nconst db = new Database(path.join(process.env.HOME || process.env.USERPROFILE || '.', '.node-red', 'iot-history.sqlite'));\ndb.pragma('journal_mode = WAL');\ndb.exec('CREATE TABLE IF NOT EXISTS sensor_history (id INTEGER PRIMARY KEY AUTOINCREMENT, suhu REAL NOT NULL, kelembaban REAL, timestamp TEXT, received TEXT NOT NULL)');\nglobal.set('iotDb', db); global.set('betterSqlite3', Database);\nconst WebSocket = require('ws'); const server = new WebSocket.Server({noServer:true});\nglobal.set('iotWsServer', server);\nconst expressWsServer = global.get('httpServer');\n// Upgrade handler is registered on Node-RED HTTP server via server event below when available.\nif (expressWsServer && expressWsServer.on) { expressWsServer.on('upgrade', (req,socket,head) => { if(req.url.startsWith('/ws/sensor')) { const key = new URL(req.url,'http://localhost').searchParams.get('apiKey'); if(key !== (process.env.IOT_API_KEY || 'iot-rizky-2026')) { socket.write('HTTP/1.1 401 Unauthorized\\r\\n\\r\\n'); socket.destroy(); return; } server.handleUpgrade(req,socket,head,ws=>server.emit('connection',ws,req)); } }); }",
+    "initialize": "const Database = _bsqlite;\nconst path = _path;\nconst db = new Database(path.join('/data/data/com.termux/files/home', '.node-red', 'iot-history.sqlite'));\ndb.pragma('journal_mode = WAL');\ndb.exec('CREATE TABLE IF NOT EXISTS sensor_history (id INTEGER PRIMARY KEY AUTOINCREMENT, suhu REAL NOT NULL, kelembaban REAL, timestamp TEXT, received TEXT NOT NULL)');\nglobal.set('iotDb', db); global.set('betterSqlite3', Database);\nconst WebSocket = _ws; const server = new WebSocket.Server({noServer:true});\nglobal.set('iotWsServer', server);\nconst expressWsServer = global.get('httpServer');\n// Upgrade handler is registered on Node-RED HTTP server via server event below when available.\nif (expressWsServer && expressWsServer.on) { expressWsServer.on('upgrade', (req,socket,head) => { if(req.url.startsWith('/ws/sensor')) { const key = new URL(req.url,'http://localhost').searchParams.get('apiKey'); if(key !== ('iot-rizky-2026')) { socket.write('HTTP/1.1 401 Unauthorized\\r\\n\\r\\n'); socket.destroy(); return; } server.handleUpgrade(req,socket,head,ws=>server.emit('connection',ws,req)); } }); }",
     "finalize": "",
-    "libs": [],
+    "libs": [
+      {
+        "var": "_bsqlite",
+        "module": "better-sqlite3"
+      },
+      {
+        "var": "_ws",
+        "module": "ws"
+      },
+      {
+        "var": "_path",
+        "module": "path"
+      }
+    ],
     "x": 410,
     "y": 100,
     "wires": [
@@ -109,13 +122,26 @@
     "type": "function",
     "z": "iot_rest_api",
     "name": "get_suhu",
-    "func": "const key = msg.req.headers['x-api-key']; if(key !== (process.env.IOT_API_KEY || 'iot-rizky-2026')) { msg.statusCode=401; msg.payload={status:'error',message:'API key tidak valid'}; return msg; }\nmsg.payload={status:'success',data:global.get('lastSensor') || {suhu:null,kelembaban:null,timestamp:null},server_time:new Date().toISOString()}; return msg;",
+    "func": "const key = msg.req.headers['x-api-key']; if(key !== ('iot-rizky-2026')) { msg.statusCode=401; msg.payload={status:'error',message:'API key tidak valid'}; return msg; }\nmsg.payload={status:'success',data:global.get('lastSensor') || {suhu:null,kelembaban:null,timestamp:null},server_time:new Date().toISOString()}; return msg;",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
-    "libs": [],
+    "libs": [
+      {
+        "var": "_bsqlite",
+        "module": "better-sqlite3"
+      },
+      {
+        "var": "_ws",
+        "module": "ws"
+      },
+      {
+        "var": "_path",
+        "module": "path"
+      }
+    ],
     "x": 410,
     "y": 180,
     "wires": [
@@ -157,13 +183,26 @@
     "type": "function",
     "z": "iot_rest_api",
     "name": "get_history",
-    "func": "if(msg.req.headers['x-api-key'] !== (process.env.IOT_API_KEY || 'iot-rizky-2026')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return msg;}\nconst Database=global.get('betterSqlite3')||require('better-sqlite3'); let db=global.get('iotDb'); if(!db){msg.statusCode=503;msg.payload={status:'error',message:'Database belum siap'};return msg;}\nconst limit=Math.max(1,Math.min(500,Number(msg.req.query.limit)||50)); msg.payload={status:'success',data:db.prepare('SELECT suhu,kelembaban,timestamp,received FROM sensor_history ORDER BY id DESC LIMIT ?').all(limit).reverse()}; return msg;",
+    "func": "if(msg.req.headers['x-api-key'] !== ('iot-rizky-2026')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return msg;}\nconst Database=global.get('betterSqlite3')||_bsqlite; let db=global.get('iotDb'); if(!db){msg.statusCode=503;msg.payload={status:'error',message:'Database belum siap'};return msg;}\nconst limit=Math.max(1,Math.min(500,Number(msg.req.query.limit)||50)); msg.payload={status:'success',data:db.prepare('SELECT suhu,kelembaban,timestamp,received FROM sensor_history ORDER BY id DESC LIMIT ?').all(limit).reverse()}; return msg;",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
-    "libs": [],
+    "libs": [
+      {
+        "var": "_bsqlite",
+        "module": "better-sqlite3"
+      },
+      {
+        "var": "_ws",
+        "module": "ws"
+      },
+      {
+        "var": "_path",
+        "module": "path"
+      }
+    ],
     "x": 410,
     "y": 260,
     "wires": [
@@ -205,13 +244,26 @@
     "type": "function",
     "z": "iot_rest_api",
     "name": "post_kontrol",
-    "func": "if(msg.req.headers['x-api-key'] !== (process.env.IOT_API_KEY || 'iot-rizky-2026')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return [msg,null];}\nconst b=msg.payload||{}; if(!b.device||!['on','off'].includes(String(b.action).toLowerCase())){msg.statusCode=400;msg.payload={status:'error',message:'device dan action on/off wajib diisi'};return [msg,null];}\nconst out={topic:'iot/kontrol',payload:{device:String(b.device),action:String(b.action).toLowerCase()}}; const res={...msg,statusCode:200,payload:{status:'success',message:'Perintah terkirim',sent:out.payload}}; return [res,out];",
+    "func": "if(msg.req.headers['x-api-key'] !== ('iot-rizky-2026')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return [msg,null];}\nconst b=msg.payload||{}; if(!b.device||!['on','off'].includes(String(b.action).toLowerCase())){msg.statusCode=400;msg.payload={status:'error',message:'device dan action on/off wajib diisi'};return [msg,null];}\nconst out={topic:'iot/kontrol',payload:{device:String(b.device),action:String(b.action).toLowerCase()}}; const res={...msg,statusCode:200,payload:{status:'success',message:'Perintah terkirim',sent:out.payload}}; return [res,out];",
     "outputs": 2,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
-    "libs": [],
+    "libs": [
+      {
+        "var": "_bsqlite",
+        "module": "better-sqlite3"
+      },
+      {
+        "var": "_ws",
+        "module": "ws"
+      },
+      {
+        "var": "_path",
+        "module": "path"
+      }
+    ],
     "x": 410,
     "y": 340,
     "wires": [
@@ -256,13 +308,26 @@
     "type": "function",
     "z": "iot_rest_api",
     "name": "put_threshold",
-    "func": "if(msg.req.headers['x-api-key'] !== (process.env.IOT_API_KEY || 'iot-rizky-2026')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return msg;}\nconst t=Number(msg.payload && msg.payload.temperature); if(!Number.isFinite(t)||t < -40||t>125){msg.statusCode=400;msg.payload={status:'error',message:'temperature harus angka antara -40 sampai 125'};return msg;} global.set('temperatureThreshold',t); const w=global.get('iotWsServer'); if(w)w.clients.forEach(c=>{if(c.readyState===1)c.send(JSON.stringify({type:'threshold',temperature:t}));}); msg.payload={status:'success',temperature:t}; return msg;",
+    "func": "if(msg.req.headers['x-api-key'] !== ('iot-rizky-2026')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return msg;}\nconst t=Number(msg.payload && msg.payload.temperature); if(!Number.isFinite(t)||t < -40||t>125){msg.statusCode=400;msg.payload={status:'error',message:'temperature harus angka antara -40 sampai 125'};return msg;} global.set('temperatureThreshold',t); const w=global.get('iotWsServer'); if(w)w.clients.forEach(c=>{if(c.readyState===1)c.send(JSON.stringify({type:'threshold',temperature:t}));}); msg.payload={status:'success',temperature:t}; return msg;",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
-    "libs": [],
+    "libs": [
+      {
+        "var": "_bsqlite",
+        "module": "better-sqlite3"
+      },
+      {
+        "var": "_ws",
+        "module": "ws"
+      },
+      {
+        "var": "_path",
+        "module": "path"
+      }
+    ],
     "x": 410,
     "y": 420,
     "wires": [
@@ -304,13 +369,26 @@
     "type": "function",
     "z": "iot_rest_api",
     "name": "get_threshold",
-    "func": "if(msg.req.headers['x-api-key'] !== (process.env.IOT_API_KEY || 'iot-rizky-2026')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return msg;} let t=Number(global.get('temperatureThreshold')); if(!Number.isFinite(t))t=30; msg.payload={status:'success',temperature:t}; return msg;",
+    "func": "if(msg.req.headers['x-api-key'] !== ('iot-rizky-2026')) {msg.statusCode=401;msg.payload={status:'error',message:'API key tidak valid'};return msg;} let t=Number(global.get('temperatureThreshold')); if(!Number.isFinite(t))t=30; msg.payload={status:'success',temperature:t}; return msg;",
     "outputs": 1,
     "timeout": 0,
     "noerr": 0,
     "initialize": "",
     "finalize": "",
-    "libs": [],
+    "libs": [
+      {
+        "var": "_bsqlite",
+        "module": "better-sqlite3"
+      },
+      {
+        "var": "_ws",
+        "module": "ws"
+      },
+      {
+        "var": "_path",
+        "module": "path"
+      }
+    ],
     "x": 410,
     "y": 500,
     "wires": [
@@ -376,7 +454,20 @@
     "noerr": 0,
     "initialize": "",
     "finalize": "",
-    "libs": [],
+    "libs": [
+      {
+        "var": "_bsqlite",
+        "module": "better-sqlite3"
+      },
+      {
+        "var": "_ws",
+        "module": "ws"
+      },
+      {
+        "var": "_path",
+        "module": "path"
+      }
+    ],
     "x": 400,
     "y": 680,
     "wires": [
